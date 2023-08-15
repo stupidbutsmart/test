@@ -3,7 +3,22 @@ const readline = rl.createInterface({
   input: process.stdin,
   output: process.stdout,
 });
+let validMoves = [1, 1];
+// let board = [' abcdefghijkl'];
+// let empty = ".";
+// let x = "x";
+// let o = "o";
+// //create board
+// for (let i = 0; board.length < 13; i++) {
+//   let row = [board.length];
+//   for (let j = 0; row.length < 13; j++) {
+//     row.push(empty);
+//   }
+//   board.push(row.join(''));
+// }
+// console.log(board.join('\n'));
 function coordinateToIndex(coor = "") {
+  //*Validation of function input
   if (coor.length < 1) throw new Error("Please enter a coordinate.");
   let character = coor[0].toLowerCase();
   let num = Number(coor.slice(1, 3));
@@ -12,10 +27,11 @@ function coordinateToIndex(coor = "") {
   return index;
 }
 function indexToCoord(index = 0) {
+  //*Validation of function input
   if (index == 0) throw new Error("Please enter an index.");
   let alpha = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"];
   let characterIndex = index <= 12 ? 0 : Math.floor(index / 12);
-  let coordNum = index % 12;
+  let coordNum = index % 12 == 0 ? 12 : index % 12;
   let coord = alpha[characterIndex] + coordNum.toString();
   return coord;
 }
@@ -34,6 +50,7 @@ function evaluate(object = { x: [0], o: [0] }) {
      * *if o is better than x, lower_threat - higher_threat = neg
      * *Thus is eval is negetive, o is stronger; vice versa
      */
+    //* finding chains within the moves played
     let chain = new Set();
     for (let i = 0; i < object[property].length - 1; i++) {
       let cost = object[property][i] - object[property][i + 1];
@@ -56,82 +73,135 @@ function evaluate(object = { x: [0], o: [0] }) {
         if (object[p].includes(lowest - cost)) {
           calculatingThreat--;
         }
-        if (object[p].includes(highest - cost)) {
+        if (object[p].includes(highest + cost)) {
           calculatingThreat--;
         }
+      }
+      //*considers borders of the board
+      if (highest % 12 == 0 || Math.floor(highest / 12) == 11) {
+        calculatingThreat--;
+      }
+      if ((lowest - 1) % 12 == 0 || lowest < 12) {
+        calculatingThreat--;
       }
       if (calculatingThreat >= 4) {
         threat = 1000;
         break;
-      } else threat += calculatingThreat;
+      }
+      threat += calculatingThreat;
     }
     threats.push(threat);
   }
   score = threats[0] - threats[1];
-  let perspective = object.x.length > object.o.length ? 1 : -1;
-  return score * perspective;
+  // let perspective = object.x.length > object.o.length ? 1 : -1;
+  return score 
 }
 function search(depth = 0, object = { x: [0], o: [0] }, totalMoves = [0]) {
   if (depth == 0) return evaluate(object);
-  let start = Date.now();
-  let validMoves = [0, 0];
   let eval = 0;
-  let bestEvalForO = 100000000000;
-  let bestEvalForX = -1000000000;
+  let bestEvalForO = Infinity;
+  let bestEvalForX = -Infinity;
   let moveCost = [11, 12, 13, 1, -1, -11, -12, -13];
   for (let i in totalMoves) {
+    //*considers movement issues with the left and right borders
+    let right = [1, 13, -11];
+    let left = [-1, -13, 11];
+    let flag = 0;
+    if (totalMoves[i] % 12 == 0) {
+      moveCost = moveCost.filter((x) => !right.includes(x));
+      flag = 1;
+    } else if ((totalMoves[i] - 1) % 12 == 0) {
+      moveCost = moveCost.filter((x) => !left.includes(x));
+      flag = 2;
+    }
     for (let j in moveCost) {
-      if (totalMoves.includes(totalMoves[i] + moveCost[j])) continue;
+      let m = totalMoves[i] + moveCost[j];
+      //*considers boarders (top bottom)
+      if (m > 144 || m < 1) continue;
+      if (totalMoves.includes(m)) continue;
       else {
-        totalMoves.push(totalMoves[i] + moveCost[j]);
+        totalMoves.push(m);
         let lowest = Infinity;
         let flag = "";
         for (let p in object) {
           if (object[p].length < lowest) flag = p;
         }
-        object[flag].push(totalMoves[i] + moveCost[j]);
-        eval = -search(depth - 1, object, totalMoves);
+        object[flag].push(m);
         let oldEvals = [bestEvalForX, bestEvalForO];
-        if (oldEvals[0] < bestEvalForX) {
-          validMoves[0] = totalMoves[i] + moveCost[j];
-        }
-        if (oldEvals[1] > bestEvalForO) {
-          validMoves[1] = totalMoves[i] + moveCost[j];
-        }
+        eval = -search(depth - 1, object, totalMoves);
         bestEvalForX = Math.max(eval, bestEvalForX);
         bestEvalForO = Math.min(eval, bestEvalForO);
+        if (oldEvals[0] < bestEvalForX) {
+          validMoves[0] = m;
+        }
+        if (oldEvals[1] > bestEvalForO) {
+          validMoves[1] = m;
+        }
         totalMoves.pop();
         object[flag].pop();
       }
     }
+    switch (flag) {
+      case 1:
+        moveCost.concat(right);
+        break;
+      case 2:
+        moveCost.concat(left);
+      default:
+        break;
+    }
   }
-  return Math.floor((Date.now() - start) / 1000);
+  return validMoves;
 }
-function engine(index = 0, totalMoves = { x: [0], o: [0] }) {
+async function engine(
+  index = 0,
+  totalMoves = { x: [0], o: [0] },
+  moves = [],
+  depth = 1
+) {
+  //*engine always plays second */
   //*Validation of function input
   if (index == 0) throw new Error("Please enter an index.");
   if (totalMoves == {}) throw new Error("Please enter the total moves object");
+  if (moves.length < 1) throw new Error("Please enter the moves array.");
   //*engine plays first move
-  if (totalMoves.length < 1) return Math.floor(Math.random() * 144);
+  // if (moves.length < 1) return Math.floor(Math.random() * 144);
+  let searching = await search(depth, totalMoves, moves);
+  console.log(searching);
+  return searching[0];
 }
-function startEngine() {
-  let end = false;
+async function prompt(totalMoves, moves, a, depth) {
+  await readline.question(`What is your #${a} move? `, async (ans) => {
+    await totalMoves.x.push(coordinateToIndex(ans));
+    moves.push(coordinateToIndex(ans));
+    let start = Date.now();
+    const res = await engine(coordinateToIndex(ans), totalMoves, moves, depth);
+    totalMoves.o.push(indexToCoord(res));
+    moves.push(res);
+    console.log(
+      `The engine plays ${indexToCoord(res)} and took ${
+        (Date.now() - start) / 1000
+      }s to run`
+    );
+    prompt(totalMoves, moves, a + 1, depth);
+  });
+}
+async function startEngine() { //runs in console
   let totalMoves = { x: [], o: [] };
-  while (!end) {
-    readline.question("What is the first coordinate?", async (ans) => {
-      await totalMoves.x.push(coordinateToIndex(ans));
-      const res = await engine(coordinateToIndex(ans), totalMoves);
-      totalMoves.o.push(coordinateToIndex(res));
-      console.log(res);
-    });
-  }
+  let moves = [];
+  let coordMoves = [];
+  let a = 1;
+  readline.question("What depth would you like to play at? ", (ans) => {
+    prompt(totalMoves, moves, a, ans);
+  });
+  readline.on("close", () => {
+    for (let i = 0; i < moves.length; i++) {
+      let count = Math.ceil(moves.indexOf(moves[i]) + 1 / 2);
+      coordMoves.push(`#${count} ${indexToCoord(moves[i])}`);
+    }
+    console.log(`The total moves are ${coordMoves}`);
+  });
+  return;
 }
-let test = {
-  o: [1, 2, 19, 24, 11, 44, 23, 33, 9],
-  x: [10, 12, 17, 20, 21, 30, 40, 41, 42, 43],
-};
-let moves = [
-  10, 11, 12, 19, 20, 21, 30, 40, 1, 2, 24, 17, 44, 23, 33, 41, 42, 43,
-];
-console.log(search(4, test, moves));
+startEngine();
 module.exports = { coordinateToIndex, engine, indexToCoord };
